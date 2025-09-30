@@ -146,12 +146,13 @@ def train_lstm_model(X_train, y_train, X_test, y_test, learning_rate=0.001, batc
 
 # Function to prepare data for LSTM
 def prepare_data(data, features, window_size=10):
+    # Drop rows with NaN in the features
+    data = data.dropna(subset=features)
+
     feature_scaler = MinMaxScaler()
     target_scaler = MinMaxScaler()
 
     scaled_features = feature_scaler.fit_transform(data[features])
-    print("Scaled features:")
-    print(scaled_features[:5])
 
     X = np.array([scaled_features[i-window_size:i] for i in range(window_size, len(scaled_features))])
     y = data['Target'].values[window_size:]
@@ -159,9 +160,8 @@ def prepare_data(data, features, window_size=10):
     # Normalize the target variable
     y = target_scaler.fit_transform(y.reshape(-1, 1)).flatten()
 
-    print("Prepared data for LSTM:")
-    print(f"X shape: {X.shape}, y shape: {y.shape}")
     return X, y, feature_scaler, target_scaler
+
 
 # Function to predict the next day's stock price
 def predict_next_day(model, data, features, feature_scaler, target_scaler, window_size=10):
