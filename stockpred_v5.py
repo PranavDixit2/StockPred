@@ -13,9 +13,9 @@ import streamlit as st
 
 # ==================== Feature Calculation Functions ====================
 
-def fetch_stock_data(ticker):
+def fetch_stock_data(ticker, period="max"):
     try:
-        stock_data = yf.download(ticker)
+        stock_data = yf.download(ticker, period=period)
         if stock_data.empty:
             raise ValueError("No data found. Please check the ticker symbol.")
         return stock_data
@@ -150,49 +150,71 @@ def calculate_prediction_intervals(model, X_test, y_test):
 def main():
     st.title("Stock Price Prediction with LSTM")
 
-    ticker = st.text_input("Enter stock ticker (e.g., AAPL):", "AAPL")
+    # User input for stock ticker
+    ticker = st.text_input("Enter the stock ticker (e.g., AAPL):", "AAPL")
 
     if st.button("Fetch Data"):
-        data = fetch_stock_data(ticker)
+        # Fetch full historical stock data
+        data = fetch_stock_data(ticker, period="max")
         if data is None:
+            st.error("Failed to fetch data. Please check the ticker symbol.")
             return
-        data = data.tail(90)
+
+        # Calculate all technical indicators/features
         data = calculate_features(data)
+
+        # Preprocess data: generate target, drop NaNs from lag features
         data, features = preprocess_data(data)
-        window_size = 10
+
+        # Optionally, keep last 90 days for display/prediction
+        data_plot = data.tail(90)
+
+        # Prepare data for LSTM
+        window_size = 10  # Number of past days to consider
         X, y, feature_scaler, target_scaler = prepare_data(data, features, window_size)
+
+        # Split into train/test sets
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
+        # Train LSTM model
         model = train_lstm_model(X_train, y_train, X_test, y_test)
+
+        # Calculate prediction intervals
         y_pred, lower_bound, upper_bound = calculate_prediction_intervals(model, X_test, y_test)
 
-        # Inverse transform for plotting
-        y_pred = target_scaler.inverse_transform(y_pred.reshape(-1,1)).flatten()
-        lower_bound = target_scaler.inverse_transform(lower_bound.reshape(-1,1)).flatten()
-        upper_bound = target_scaler.inverse_transform(upper_bound.reshape(-1,1)).flatten()
-        y_test = target_scaler.inverse_transform(y_test.reshape(-1,1)).flatten()
+        # Inverse transform predictions and bounds
+        y_pred = target_scaler.inverse_transform(y_pred.reshape(-1, 1)).flatten()
+        lower_bound = target_scaler.inverse_transform(lower_bound.reshape(-1, 1)).flatten()
+        upper_bound = target_scaler.inverse_transform(upper_bound.reshape(-1, 1)).flatten()
+        y_test = target_scaler.inverse_transform(y_test.reshape(-1, 1)).flatten()
 
+        # Predict next day's closing price
         predicted_price = predict_next_day(model, data, features, feature_scaler, target_scaler, window_size)
-        st.write(f"Predicted closing price for next trading day ({ticker}): ${predicted_price:.2f}")
+        if predicted_price is not None:
+            st.write(f"Predicted closing price for the next trading day for {ticker}: ${predicted_price:.2f}")
 
-        # Evaluation metrics
+        # Display evaluation metrics
         mae = mean_absolute_error(y_test, y_pred)
         mse = mean_squared_error(y_test, y_pred)
         rmse = np.sqrt(mse)
-        mape = np.mean(np.abs((y_test - y_pred)/(y_test + 1e-8)))*100
+        mape = np.mean(np.abs((y_test - y_pred) / (y_test + 1e-8))) * 100
 
         st.subheader("Evaluation Metrics")
-        st.write(f"MAE: {mae:.2f}, MSE: {mse:.2f}, RMSE: {rmse:.2f}, MAPE: {mape:.2f}%")
+        st.write(f"Mean Absolute Error (MAE): {mae:.2f}")
+        st.write(f"Mean Squared Error (MSE): {mse:.2f}")
+        st.write(f"Root Mean Squared Error (RMSE): {rmse:.2f}")
+        st.write(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
 
-        # Plotting
-        st.subheader("Actual vs Predicted Prices")
+        # Plot Actual vs Predicted with Prediction Intervals for the last 90 days
+        st.subheader("Actual vs Predicted Prices (Last 90 Days)")
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=data.index[-len(y_test):], y=y_test, mode='lines', name='Actual', line=dict(color='blue')))
-        fig.add_trace(go.Scatter(x=data.index[-len(y_test):], y=y_pred, mode='lines', name='Predicted', line=dict(color='red')))
-        fig.add_trace(go.Scatter(x=data.index[-len(y_test):], y=lower_bound, mode='lines', name='Lower Bound', line=dict(color='gray', dash='dash')))
-        fig.add_trace(go.Scatter(x=data.index[-len(y_test):], y=upper_bound, mode='lines', name='Upper Bound', line=dict(color='gray', dash='dash')))
-        fig.update_layout(title=f'Actual vs Predicted Stock Prices for {ticker}', xaxis_title='Date', yaxis_title='Price')
+        fig.add_trace(go.Scatter(x=data_plot.index[-len(y_test):], y=y_test, mode='lines', name='Actual Prices', line=dict(color='blue')))
+        fig.add_trace(go.Scatter(x=data_plot.index[-len(y_test):], y=y_pred, mode='lines', name='Predicted Prices', line=dict(color='red')))
+        fig.add_trace(go.Scatter(x=data_plot.index[-len(y_test):], y=lower_bound, mode='lines', name='Lower Bound', line=dict(color='gray', dash='dash')))
+        fig.add_trace(go.Scatter(x=data_plot.index[-len(y_test):], y=upper_bound, mode='lines', name='Upper Bound', line=dict(color='gray', dash='dash')))
+        fig.update_layout(
+            title=f'Actual vs Predicted Stock Prices for {ticker} with Prediction Intervals',
+            xaxis_title='Date',
+            yaxis_title='Price'
+        )
         st.plotly_chart(fig)
-
-if __name__ == "__main__":
-    main()
