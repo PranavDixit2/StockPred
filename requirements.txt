@@ -1,3 +1,4 @@
+matplotlib
 streamlit
 yfinance
 pandas
@@ -5,3 +6,4 @@ numpy
 plotly
 scikit-learn
 tensorflow
+
